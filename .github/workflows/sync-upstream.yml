@@ -1,0 +1,41 @@
+name: Auto Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # 每 6 小时自动拉取上游更新
+  workflow_dispatch:        # 也可以在 Actions 页面手动触发
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync from upstream
+        env:
+          UPSTREAM_REPO: jwoo1982217-eng/dsh-desktop
+          BRANCH: main
+        run: |
+          set -e
+          git config user.name "looking-ok"
+          git config user.email "770017822@qq.com"
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream "${BRANCH}" --tags --prune
+
+          # 合并上游到 fork 的 main（-X theirs：冲突时以上游内容为准）。
+          # 用合并而非 force-push：保留 fork 自身历史与本仓库的 workflow 文件，不产生循环。
+          git checkout -B "${BRANCH}" "origin/${BRANCH}" 2>/dev/null || git checkout -B "${BRANCH}"
+          git merge --no-edit -X theirs "upstream/${BRANCH}" || echo "merge skipped (already in sync)"
+          git push origin "HEAD:${BRANCH}"
+          git push origin --tags 2>/dev/null || true
